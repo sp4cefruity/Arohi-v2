@@ -37,7 +37,6 @@ def _clean_categorical(series: pd.Series, strip_trailing_zero: bool = False) -> 
     """
     s = series.astype(str).str.strip()
     if strip_trailing_zero:
-        
         s = s.str.replace(r"\.0$", "", regex=True)
     s = s.where(~s.isin(_NA_STRINGS), other=np.nan)
     return s
@@ -80,9 +79,12 @@ def _encode_clinical(clinical_df: pd.DataFrame) -> pd.DataFrame:
 
 def load_hybrid_scores(scores_path: str, le_path: str, tf_path: str) -> pd.DataFrame:
     """Load the pathway ssGSEA, leading-edge gene, and TF activity score
-    CSVs for one cohort and join them on sample_id."""
-    scores_df = pd.read_csv(scores_path, index_col=0)
-    le_df     = pd.read_csv(le_path, index_col=0)
+    CSVs for one cohort and join them on sample_id. The ssGSEA and
+    leading-edge files are written by R as features x samples (pathways /
+    genes in the index column), so they are transposed to sample-major to
+    match the TF file before the join."""
+    scores_df = pd.read_csv(scores_path, index_col=0).T
+    le_df     = pd.read_csv(le_path, index_col=0).T
     tf_df     = pd.read_csv(tf_path, index_col=0)
 
     for df in (scores_df, le_df, tf_df):
@@ -151,8 +153,8 @@ def fuse_features(clinical_path: str, scores_path: str, le_path: str,
     return fused
 
 CLINICAL_PATH      = "data/raw/combined_metadata.csv"
-TRAIN_SCORES_PATH  = "outputs/scores/gse_train_scores.csv"
-TEST_SCORES_PATH   = "outputs/scores/gse_test_scores.csv"
+TRAIN_SCORES_PATH  = "outputs/scores/gse_train_ssgsea.csv"
+TEST_SCORES_PATH   = "outputs/scores/gse_test_ssgsea.csv"
 TRAIN_LE_PATH       = "outputs/scores/gse_train_leading_edge.csv"
 TEST_LE_PATH        = "outputs/scores/gse_test_leading_edge.csv"
 TRAIN_TF_PATH       = "outputs/scores/gse_train_tf_scores.csv"

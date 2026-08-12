@@ -18,6 +18,7 @@ suppressPackageStartupMessages({
   library("GEOquery")
 })
 
+DATASET_REGISTRY <- list(
   affy_microarray = list(
     label    = "Affymetrix microarray (RMA) -- limma downstream",
     packages = list(bioc = c("affy", "affyio", "limma")),
@@ -38,6 +39,7 @@ suppressPackageStartupMessages({
     fn       = "normalize_rnaseq_voom",
     id_type  = "gene"
   )
+)
 
 detect_platform <- function(gse_id) {
   suppressPackageStartupMessages(library(GEOquery))

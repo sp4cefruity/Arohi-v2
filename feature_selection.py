@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import warnings
 from pathlib import Path
 
 import joblib
@@ -43,10 +42,12 @@ def run_elasticnet_selection(X_train_scaled: pd.DataFrame, y_train: pd.Series,
 
     y_aligned = pd.Series(y_train).reindex(X_train_scaled.index) if hasattr(y_train, "reindex") \
         else pd.Series(y_train, index=X_train_scaled.index)
-    if y_aligned.isna().any():
-        warnings.warn(
-            f"[ELASTICNET] {y_aligned.isna().sum()} sample(s) in X_train_scaled had no matching "
-            f"label after alignment; these rows will break ElasticNetCV.fit() if not handled upstream."
+    n_unmatched = int(y_aligned.isna().sum())
+    if n_unmatched:
+        raise ValueError(
+            f"[ELASTICNET] {n_unmatched} sample(s) in X_train_scaled have no matching label after "
+            f"alignment; refusing to train with an incomplete y. Check that y_train is keyed on the "
+            f"same sample_id index as X_train_scaled."
         )
     y_binary = y_aligned.astype(str).str.strip().eq("pCR").astype(int)
 
@@ -71,6 +72,11 @@ def run_elasticnet_selection(X_train_scaled: pd.DataFrame, y_train: pd.Series,
     ).reset_index(drop=True)
 
     selected_features = coef_table.loc[coef_table["selected"], "feature"].tolist()
+    if not selected_features:
+        raise ValueError(
+            "[ELASTICNET] ElasticNet zeroed every coefficient; no features selected. "
+            "Relax the l1_ratio range or check X/y alignment."
+        )
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
