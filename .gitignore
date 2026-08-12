@@ -8,6 +8,15 @@ __pycache__/
 
 .ipynb_checkpoints/
 
+# R local library and package cache
+.r_libs/
+R_LIBS_USER
+R_LIBS_SITE
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata/
+
 outputs/
 data/
 *.csv

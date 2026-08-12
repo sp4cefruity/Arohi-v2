@@ -1,13 +1,18 @@
 .ensure_pkg <- function(pkgs, bioc = FALSE) {
   need <- pkgs[!sapply(pkgs, requireNamespace, quietly = TRUE)]
   if (!length(need)) return(invisible())
+
+  if (!exists("check_project_dependencies", mode = "function")) {
+    source(file.path("R", "dependencies.R"))
+  }
+
   if (bioc) {
-    if (!requireNamespace("BiocManager", quietly = TRUE))
-      install.packages("BiocManager", repos = "https://cloud.r-project.org")
-    BiocManager::install(need, ask = FALSE, update = FALSE)
+    message(sprintf("[DEPENDENCIES] Missing BioConductor package(s): %s", paste(need, collapse = ", ")))
+    install_project_dependencies(need)
   } else {
     install.packages(need, repos = "https://cloud.r-project.org")
   }
+  invisible(TRUE)
 }
 
 suppressPackageStartupMessages({
@@ -18,6 +23,7 @@ suppressPackageStartupMessages({
   library("GEOquery")
 })
 
+DATASET_REGISTRY <- list(
   affy_microarray = list(
     label    = "Affymetrix microarray (RMA) -- limma downstream",
     packages = list(bioc = c("affy", "affyio", "limma")),
@@ -38,6 +44,7 @@ suppressPackageStartupMessages({
     fn       = "normalize_rnaseq_voom",
     id_type  = "gene"
   )
+)
 
 detect_platform <- function(gse_id) {
   suppressPackageStartupMessages(library(GEOquery))

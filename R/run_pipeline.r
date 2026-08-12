@@ -3,6 +3,9 @@ if (!requireNamespace("here", quietly = TRUE)) {
 }
 setwd(here::here())
 
+source("R/dependencies.R")
+check_project_dependencies()
+
 source("R/normalize.r")
 source("R/ingest_multi_dataset.r")
 source("R/probe_map.r")
