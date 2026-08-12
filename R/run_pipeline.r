@@ -11,7 +11,7 @@ source("R/ingest_multi_dataset.r")
 source("R/probe_map.r")
 source("R/ensembl_map.r")
 source("R/split_harmonize.r")
-source("R/limma_de.R")
+source("R/limma_de.r")
 source("R/pathway_enrichment.r")
 source("R/signature_scoring.r")
 source("R/leading_edge_extract.r")
@@ -40,8 +40,7 @@ plot_dataset_summary(MERGED_META)
 message("[PHASE 1] Stratified train/test split across datasets and labels...")
 splits <- split_train_test(MERGED_EXPR, MERGED_LABELS, MERGED_META, train_prop = 0.70, seed = 42L)
 
-.save(splits$test, "gse_test_locked.csv")
-message("[PHASE 1] Test set locked. Will not be touched until Phase 5.")
+message("[PHASE 1] Test set locked (outputs/gse_test_locked.csv, written by split_train_test). Will not be touched until Phase 5.")
 
 gse_train    <- splits$train
 gse_test_raw <- splits$test
@@ -62,6 +61,9 @@ de_result <- run_limma_de(
 
 message("[PHASE 2] Pathway enrichment (fgsea, Hallmark, ranked by t-statistic)...")
 pathway_result <- run_pathway_enrichment(de_result, output_dir = "outputs")
+
+if (is.null(pathway_result$sig) || nrow(pathway_result$sig) == 0)
+  stop("[ERROR] No Hallmark pathways significant at FDR <= 0.05; cannot build signatures. Try a more lenient fdr_cutoff.")
 
 message("[PHASE 2] Extracting pathway signatures...")
 signatures <- extract_signatures(pathway_result, de_result, output_dir = "outputs")
