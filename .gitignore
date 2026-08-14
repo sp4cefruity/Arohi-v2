@@ -17,7 +17,10 @@ R_LIBS_SITE
 .RData
 .Ruserdata/
 
-outputs/
+outputs/*
+!outputs/cache/
+!outputs/cache/**
+outputs/cache/geo/
 data/
 *.csv
 *.tsv

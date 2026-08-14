@@ -19,6 +19,24 @@ split_train_test <- function(gene_mat, labels, meta, train_prop = 0.70, seed = 4
   labels   <- labels[samp_ids]
   meta     <- meta[match(samp_ids, meta$sample_id), ]
 
+  if (!is.null(meta$patient_id) && any(!is.na(meta$patient_id) & nzchar(meta$patient_id))) {
+    dedup_keep <- rep(TRUE, length(samp_ids))
+    for (g in unique(meta$gse_id)) {
+      g_idx <- which(meta$gse_id == g)
+      g_pid <- meta$patient_id[g_idx]
+      dup <- duplicated(g_pid, incomparables = NA_character_)
+      if (any(dup)) {
+        message(sprintf("[DEDUP] %s: removing %d duplicate-patient sample(s).", g, sum(dup)))
+        dedup_keep[g_idx[dup]] <- FALSE
+      }
+    }
+    if (any(!dedup_keep)) {
+      samp_ids <- samp_ids[dedup_keep]
+      labels   <- labels[samp_ids]
+      meta     <- meta[match(samp_ids, meta$sample_id), ]
+    }
+  }
+
   stratum   <- interaction(meta$gse_id, labels, drop = TRUE)
   train_idx <- logical(length(samp_ids))
 
@@ -139,12 +157,15 @@ choose_harmonisation <- function(train_mat, test_mat, meta) {
   meta_sub <- meta[match(all_ids, meta$sample_id), ]
 
   platforms <- unique(na.omit(meta_sub$platform))
-  has_microarray <- any(grepl("affy|microarray", platforms, ignore.case = TRUE))
+  has_microarray <- any(grepl(
+    "affy|microarray|agilent|illumina|processed|unknown",
+    platforms, ignore.case = TRUE
+  ))
   has_rnaseq     <- any(grepl("rnaseq|rna_seq|counts|voom|vst", platforms, ignore.case = TRUE))
 
   if (has_microarray && has_rnaseq) {
     message(sprintf(
-      "[HARMONIZE] Both microarray and RNA-seq platforms present (%s) -> using harmonize_tdm() to correct cross-platform dynamic-range differences.",
+      "[HARMONIZE] Both microarray/processed-expression and RNA-seq platforms present (%s) -> using harmonize_tdm() to correct cross-platform dynamic-range differences.",
       paste(platforms, collapse = ", ")
     ))
     train_h <- harmonize_tdm(train_mat, train_mat, label = "train")

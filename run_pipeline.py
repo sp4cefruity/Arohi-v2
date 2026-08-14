@@ -23,12 +23,12 @@ from model_training import run_model_training_pipeline
 # to change.
 # =============================================================================
 GSE_TRAIN_CLINICAL = "data/raw/combined_metadata.csv"
-GSE_TRAIN_SCORES   = "outputs/scores/gse_train_scores.csv"
+GSE_TRAIN_SCORES   = "outputs/scores/gse_train_ssgsea.csv"
 GSE_TRAIN_LE       = "outputs/scores/gse_train_leading_edge.csv"
 GSE_TRAIN_TF       = "outputs/scores/gse_train_tf_scores.csv"
 
 GSE_TEST_CLINICAL  = "data/raw/combined_metadata.csv"
-GSE_TEST_SCORES    = "outputs/scores/gse_test_scores.csv"
+GSE_TEST_SCORES    = "outputs/scores/gse_test_ssgsea.csv"
 GSE_TEST_LE        = "outputs/scores/gse_test_leading_edge.csv"
 GSE_TEST_TF        = "outputs/scores/gse_test_tf_scores.csv"
 
