@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
-import statsmodels.api as sm
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import (
     accuracy_score, auc, average_precision_score, brier_score_loss,
@@ -68,19 +67,25 @@ def predict_cohort_dual(bundle: dict, fused_df: pd.DataFrame, cohort_label: str)
     X_full   = fused_df[all_train_columns]
     X_scaled = apply_preprocessing(X_full, imputer, scaler)   # .transform() only
 
-    
-    X_glm = sm.add_constant(X_scaled[selected_features], has_constant="add")
-    X_glm = X_glm.reindex(columns=glm.params.index, fill_value=0.0)  # match training column order
-    prob_glm = pd.Series(glm.predict(X_glm).values, index=X_scaled.index, name="prob_pCR_glm")
+    prob_glm = pd.Series(
+        glm.predict_proba(X_scaled[selected_features])[:, 1],
+        index=X_scaled.index, name="prob_pCR_glm"
+    )
 
-    
     prob_xgb = pd.Series(
         xgb_model.predict_proba(X_scaled[all_train_columns])[:, 1],
         index=X_scaled.index, name="prob_pCR_xgb"
     )
 
-    
-    prob_ens = ((prob_glm + prob_xgb) / 2.0).rename("prob_pCR_ensemble")
+    stacking_meta = bundle.get("stacking_meta")
+    if stacking_meta is not None:
+        X_stack = pd.DataFrame({"glm": prob_glm, "xgb": prob_xgb}, index=X_scaled.index)
+        prob_ens = pd.Series(
+            stacking_meta.predict_proba(X_stack)[:, 1],
+            index=X_scaled.index, name="prob_pCR_ensemble"
+        )
+    else:
+        prob_ens = ((prob_glm + prob_xgb) / 2.0).rename("prob_pCR_ensemble")
 
     to_label = lambda p: p.apply(lambda v: "pCR" if v >= 0.5 else "RD")
 
@@ -273,8 +278,8 @@ def run_glm_explanation(bundle: dict, fused_df: pd.DataFrame, predictions: pd.Da
     X_scaled = apply_preprocessing(X_full, imputer, scaler)
     X_sel    = X_scaled[selected_features]
 
-    coefs   = glm.params.reindex(selected_features)          # excludes 'const'
-    contrib = X_sel.multiply(coefs, axis=1)                  # per-patient per-feature log-odds contribution
+    coefs   = pd.Series(glm.coef_[0], index=selected_features)   # excludes intercept
+    contrib = X_sel.multiply(coefs, axis=1)                      # per-patient per-feature log-odds contribution
     contrib.index.name = "sample_id"
 
     out_dir = Path(output_dir)

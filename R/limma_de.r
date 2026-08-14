@@ -1,4 +1,3 @@
-
 if (!exists(".ensure_pkg", mode = "function")) {
   .ensure_pkg <- function(pkgs, bioc = FALSE) {
     need <- pkgs[!sapply(pkgs, requireNamespace, quietly = TRUE)]
@@ -35,7 +34,8 @@ check_matrix_for_limma <- function(expr_mat) {
 }
 
 run_limma_de <- function(expr_mat, labels, meta = NULL, adj_method = "BH",
-                          fdr_cutoff = 0.05, lfc_cutoff = 0.3,
+                          fdr_cutoff = 0.05, lfc_cutoff = 0.05,
+                          min_sig_frac = 0.10, fallback_rank = TRUE,
                           output_dir = "outputs", voom_weights = NULL) {
 
   check_matrix_for_limma(expr_mat)
@@ -76,39 +76,64 @@ run_limma_de <- function(expr_mat, labels, meta = NULL, adj_method = "BH",
 
   ranked_by_t <- tt_full[order(-tt_full$t), ]
 
-  tt_sig <- tt_full[!is.na(tt_full$adj.P.Val) &
-                       tt_full$adj.P.Val <= fdr_cutoff &
-                       abs(tt_full$logFC) >= lfc_cutoff, ]
+  strict_mask <- !is.na(tt_full$adj.P.Val) &
+    tt_full$adj.P.Val <= fdr_cutoff &
+    abs(tt_full$logFC) >= lfc_cutoff
+
+  tt_full$strict_significant <- strict_mask
+  tt_sig <- tt_full[strict_mask, ]
 
   message(sprintf(
-    "[LIMMA] %d / %d genes significant at FDR <= %.2f & |logFC| >= %.2f.",
+    "[LIMMA] %d / %d genes significant at strict FDR <= %.2f & |logFC| >= %.2f.",
     nrow(tt_sig), nrow(tt_full), fdr_cutoff, lfc_cutoff
   ))
+
+  target_n <- ceiling(min_sig_frac * nrow(tt_full))
+
+  if (fallback_rank && nrow(tt_sig) < target_n) {
+    message(sprintf(
+      "[LIMMA] Strict criteria yielded fewer than %.0f%% of genes (%d < %d target) -- falling back to the top %d genes by nominal p-value. These are NOT all FDR<=%.2f significant; see the 'selection' column.",
+      min_sig_frac * 100, nrow(tt_sig), target_n, target_n, fdr_cutoff
+    ))
+
+    ranked_by_p <- tt_full[order(tt_full$P.Value), ]
+    tt_sig <- ranked_by_p[seq_len(min(target_n, nrow(ranked_by_p))), ]
+    tt_sig$selection <- ifelse(tt_sig$strict_significant, "strict", "fallback_top_ranked")
+  } else {
+    tt_sig$selection <- "strict"
+  }
 
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
   write.csv(tt_full, file.path(output_dir, "de_results_full.csv"), row.names = FALSE)
   write.csv(tt_sig,  file.path(output_dir, "de_results_sig.csv"),  row.names = FALSE)
 
-  
   volcano_file <- file.path(output_dir, "de_volcano.png")
-  tt_full$sig <- with(tt_full, !is.na(adj.P.Val) & adj.P.Val <= fdr_cutoff & abs(logFC) >= lfc_cutoff)
+  tt_full$plot_tier <- factor(
+    ifelse(tt_full$gene %in% tt_sig$gene[tt_sig$selection == "strict"], "strict",
+    ifelse(tt_full$gene %in% tt_sig$gene[tt_sig$selection == "fallback_top_ranked"], "fallback_top_ranked",
+           "not_selected")),
+    levels = c("strict", "fallback_top_ranked", "not_selected")
+  )
 
   if (requireNamespace("ggplot2", quietly = TRUE)) {
     suppressPackageStartupMessages(library(ggplot2))
-    p <- ggplot(tt_full, aes(x = logFC, y = -log10(P.Value), color = sig)) +
+    p <- ggplot(tt_full, aes(x = logFC, y = -log10(P.Value), color = plot_tier)) +
       geom_point(alpha = 0.6, size = 1) +
-      scale_color_manual(values = c(`TRUE` = "#de2d26", `FALSE` = "grey70")) +
+      scale_color_manual(values = c(
+        strict = "#de2d26", fallback_top_ranked = "#fdae61", not_selected = "grey70"
+      )) +
       geom_vline(xintercept = c(-lfc_cutoff, lfc_cutoff), linetype = "dashed") +
       labs(
         title = "Differential expression: pCR vs RD", x = "logFC (pCR vs RD)",
         y = "-log10(P value)",
-        color = sprintf("FDR<=%.2f & |logFC|>=%.2f", fdr_cutoff, lfc_cutoff)
+        color = sprintf("Selection\n(strict: FDR<=%.2f & |logFC|>=%.2f)", fdr_cutoff, lfc_cutoff)
       ) +
       theme_minimal()
-    ggsave(volcano_file, plot = p, width = 7, height = 6, dpi = 150)
+    ggsave(volcano_file, plot = p, width = 7.5, height = 6, dpi = 150)
   } else {
+    tier_colors <- c(strict = "red", fallback_top_ranked = "orange", not_selected = "grey70")
     png(volcano_file, width = 700, height = 600)
-    with(tt_full, plot(logFC, -log10(P.Value), col = ifelse(sig, "red", "grey70"),
+    with(tt_full, plot(logFC, -log10(P.Value), col = tier_colors[as.character(plot_tier)],
                         pch = 16, main = "Differential expression: pCR vs RD"))
     abline(v = c(-lfc_cutoff, lfc_cutoff), lty = 2)
     dev.off()
