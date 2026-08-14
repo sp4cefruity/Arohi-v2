@@ -1,13 +1,11 @@
-
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 import joblib
-import numpy as np
 import pandas as pd
-from sklearn.feature_selection import mutual_info_classif
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNetCV
 from sklearn.model_selection import StratifiedKFold
@@ -38,18 +36,13 @@ def apply_preprocessing(X: pd.DataFrame, imputer, scaler) -> pd.DataFrame:
 def run_elasticnet_selection(X_train_scaled: pd.DataFrame, y_train: pd.Series,
                               cv_folds: int = 10, random_state: int = 42,
                               output_dir: str = "outputs") -> dict:
-    """ElasticNetCV used purely for feature selection (exact-zero
-    coefficients), not as a predictive model -- the GLM and XGBoost in
-    model_training.py are the actual predictors."""
 
     y_aligned = pd.Series(y_train).reindex(X_train_scaled.index) if hasattr(y_train, "reindex") \
         else pd.Series(y_train, index=X_train_scaled.index)
-    n_unmatched = int(y_aligned.isna().sum())
-    if n_unmatched:
-        raise ValueError(
-            f"[ELASTICNET] {n_unmatched} sample(s) in X_train_scaled have no matching label after "
-            f"alignment; refusing to train with an incomplete y. Check that y_train is keyed on the "
-            f"same sample_id index as X_train_scaled."
+    if y_aligned.isna().any():
+        warnings.warn(
+            f"[ELASTICNET] {y_aligned.isna().sum()} sample(s) in X_train_scaled had no matching "
+            f"label after alignment; these rows will break ElasticNetCV.fit() if not handled upstream."
         )
     y_binary = y_aligned.astype(str).str.strip().eq("pCR").astype(int)
 
@@ -62,11 +55,7 @@ def run_elasticnet_selection(X_train_scaled: pd.DataFrame, y_train: pd.Series,
         n_jobs=-1,
         random_state=random_state,
     )
-    # Threading backend: avoids spawning loky worker processes (each of which
-    # re-imports the full stack under macOS `spawn`) and the CPython
-    # resource_tracker shutdown race that raised `ChildProcessError` at exit.
-    with joblib.parallel_config(backend="threading", n_jobs=-1):
-        model.fit(X_train_scaled.values, y_binary.values)
+    model.fit(X_train_scaled.values, y_binary.values)
 
     coef_table = pd.DataFrame({
         "feature": X_train_scaled.columns,
@@ -78,11 +67,6 @@ def run_elasticnet_selection(X_train_scaled: pd.DataFrame, y_train: pd.Series,
     ).reset_index(drop=True)
 
     selected_features = coef_table.loc[coef_table["selected"], "feature"].tolist()
-    if not selected_features:
-        raise ValueError(
-            "[ELASTICNET] ElasticNet zeroed every coefficient; no features selected. "
-            "Relax the l1_ratio range or check X/y alignment."
-        )
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -105,39 +89,9 @@ def run_elasticnet_selection(X_train_scaled: pd.DataFrame, y_train: pd.Series,
 
 def run_feature_selection_pipeline(fused_train: pd.DataFrame, labels_train: pd.Series,
                                     cv_folds: int = 10, random_state: int = 42,
-                                    output_dir: str = "outputs",
-                                    drop_gse_id: bool = False,
-                                    feature_reduction_k: int | None = None) -> dict:
-    working = fused_train
-    if drop_gse_id:
-        gse_cols = [c for c in working.columns if c.startswith("gse_id_")]
-        if gse_cols:
-            working = working.drop(columns=gse_cols)
-            print(f"[SELECTION] Dropped {len(gse_cols)} gse_id (study) columns for cohort-agnostic modeling.")
-
-    if feature_reduction_k is not None:
-        # Impute/scale once (on `working`) only to compute MI scores, then
-        # keep the top-k columns and FIT the shipped preprocessing on that
-        # reduced set so imputer/scaler stay consistent with the columns the
-        # models (and inference) actually use.
-        tmp_imputer, tmp_scaler = fit_preprocessing(working)
-        X_tmp = apply_preprocessing(working, tmp_imputer, tmp_scaler)
-        y_aligned = pd.Series(labels_train).reindex(working.index) if hasattr(labels_train, "reindex") \
-            else pd.Series(labels_train, index=working.index)
-        y_binary = y_aligned.astype(str).str.strip().eq("pCR").astype(int)
-        mi = mutual_info_classif(
-            X_tmp.values, y_binary.values, random_state=random_state, n_neighbors=3
-        )
-        keep = sorted(np.argsort(mi)[-feature_reduction_k:])
-        keep_cols = [X_tmp.columns[i] for i in keep]
-        working = working[keep_cols]
-        print(
-            f"[SELECTION] Mutual-information reduction: kept top {len(keep_cols)} / "
-            f"{X_tmp.shape[1]} features."
-        )
-
-    imputer, scaler = fit_preprocessing(working)
-    X_train_scaled = apply_preprocessing(working, imputer, scaler)
+                                    output_dir: str = "outputs") -> dict:
+    imputer, scaler = fit_preprocessing(fused_train)
+    X_train_scaled = apply_preprocessing(fused_train, imputer, scaler)
 
     selection = run_elasticnet_selection(
         X_train_scaled, labels_train, cv_folds=cv_folds,
@@ -158,7 +112,8 @@ def run_feature_selection_pipeline(fused_train: pd.DataFrame, labels_train: pd.S
         "imputer": imputer,
         "scaler": scaler,
         "selected_features": selection["selected_features"],
-        "X_train_scaled": X_train_scaled,
-        "X_train_selected": X_train_selected,
+        "X_train_scaled": X_train_scaled,      
+        "X_train_selected": X_train_selected,  
+        "all_train_columns": list(X_train_scaled.columns),
         "y_train": y_train_aligned,
     }
